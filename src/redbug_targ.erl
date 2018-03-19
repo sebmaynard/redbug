@@ -18,7 +18,8 @@ start(Node,Cnf) ->
 assert_loaded(Node) ->
   lists:foreach(fun(M) -> ass_loaded(Node,M) end,[?MODULE]).
 
-ass_loaded(nonode@nohost,Mod) -> {module,Mod}=c:l(Mod);
+ass_loaded(nonode@nohost,Mod) ->
+  {module,Mod}=mock("c:l",Mod);
 ass_loaded(Node,Mod) ->
   case rpc:call(Node,Mod,module_info,[compile]) of
     {badrpc,{'EXIT',{undef,_}}} ->              %no code
@@ -90,7 +91,7 @@ remote_stop(Consumer,Cnf) ->
   stop_trace(Cnf).
 
 stop_trace(Cnf) ->
-  erlang:trace(all,false,dict:fetch(flags,Cnf)),
+  mock("erlang:trace",{all,false,dict:fetch(flags,Cnf)}),
   unset_tps().
 
 start_trace(Cnf) ->
@@ -147,7 +148,7 @@ maybe_load_rtp({{M,_,_},_MatchSpec,_Flags} = Rtp,O) ->
     case code:which(M) of
       preloaded         -> ok;
       non_existing      -> throw(non_existing_module);
-      L when is_list(L) -> [c:l(M) || false == code:is_loaded(M)]
+      L when is_list(L) -> [mock("c:l",M) || false == code:is_loaded(M)]
     end,
     [Rtp|O]
   catch
@@ -160,7 +161,7 @@ do_start_trace(Cnf) ->
   Rtps = dict:fetch(rtps,Cnf),
   Flags = [{tracer,real_consumer(Consumer)}|dict:fetch(flags,Cnf)],
   unset_tps(),
-  NoProcs = lists:sum([erlang:trace(P,true,Flags) || P <- Ps]),
+  NoProcs = lists:sum([mock("erlang:trace",{P,true,Flags}) || P <- Ps]),
   untrace(family(redbug)++family(?MODULE),Flags),
   NoFuncs = set_tps(Rtps),
   assert_trace_targets(NoProcs,NoFuncs,Flags,Ps),
@@ -174,12 +175,12 @@ family(Daddy) ->
   end.
 
 untrace(Pids,Flags) ->
-  [try erlang:trace(P,false,Flags)
-   catch _:R-> erlang:display({R,process_info(P),erlang:trace_info(P,flags)})
+  [try mock("erlang:trace",{P,false,Flags})
+   catch _:R-> erlang:display({R,process_info(P),mock("erlang:trace_info",{P,flags})})
    end || P <- Pids,
           is_pid(P),
           node(P)==node(),
-          {flags,[]}=/=erlang:trace_info(P,flags)].
+          {flags,[]}=/=mock("erlang:trace_info",{P,flags})].
 
 assert_trace_targets(NoProcs,NoFuncs,Flags,Ps) ->
   case 0 < NoProcs orelse is_new_pidspec(Ps) of
@@ -198,14 +199,14 @@ is_message_trace(Flags) ->
   (lists:member(send,Flags) orelse lists:member('receive',Flags)).
 
 unset_tps() ->
-  erlang:trace_pattern({'_','_','_'},false,[local,call_count,call_time]),
-  erlang:trace_pattern({'_','_','_'},false,[global]).
+  mock("erlang:trace_pattern",{{'_','_','_'},false,[local,call_count,call_time]}),
+  mock("erlang:trace_pattern",{{'_','_','_'},false,[global]}).
 
 set_tps(TPs) ->
   lists:foldl(fun set_tps_f/2,0,TPs).
 
 set_tps_f({MFA,MatchSpec,Flags},A) ->
-  A+erlang:trace_pattern(MFA,MatchSpec,Flags).
+  A+mock("erlang:trace_pattern",{MFA,MatchSpec,Flags}).
 
 mk_prc(Ps,A) when Ps == running; Ps == all; Ps == new ->
   [Ps|A];
@@ -412,7 +413,7 @@ flush_time_count({MFA,_MatchSpec,Flags},Where) ->
   Where ! lists:foldl(fun(Flag,A) -> time_count(MFA,Flag,A) end,[],Flags).
 
 time_count(MFA,Flag,A) when Flag == call_count; Flag == call_time ->
-  [{Flag,{MFA,element(2,erlang:trace_info(MFA,Flag))},[],ts(ts())}|A];
+  [{Flag,{MFA,element(2,mock("erlang:trace_info",{MFA,Flag}))},[],ts(ts())}|A];
 time_count(_,_,A) ->
   A.
 
@@ -453,3 +454,8 @@ ts() -> erlang:now().
 -else.
 ts() -> erlang:timestamp().
 -endif.
+
+mock("c:l",M) -> {module,M};
+mock("erlang:trace", _) -> 2;
+mock("erlang:trace_pattern", _) -> 3;
+mock("erlang:trace_info", {_,F}) -> {F,[]}.
