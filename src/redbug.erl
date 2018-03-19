@@ -237,24 +237,31 @@ running(Cnf = #cnf{trc_pid=TrcPid,print_pid=PrintPid}) ->
   receive
     stop                       -> TrcPid ! stop,
                                   stopping(Cnf);
-    {redbug_targ,{stopping,_}} -> stopping(Cnf);
+    {redbug_targ,{stopping,_}} -> wait_for_printer(Cnf);
     {'EXIT',TrcPid,R}          -> ?log({trace_control_died,R}),
-                                  stopping(Cnf);
+                                  wait_for_printer(Cnf);
     {'EXIT',PrintPid,R}        -> wait_for_trc(Cnf,R);
     X                          -> ?log([{unknown_message,X}])
   end.
 
-wait_for_trc(Cnf = #cnf{trc_pid=TrcPid},R) ->
+wait_for_trc(Cnf = #cnf{trc_pid=TrcPid},Result) ->
   receive
-    {redbug_targ,{stopping,_}} -> done(Cnf,R);
-    {'EXIT',TrcPid,R}          -> ?log({trace_control_died,R});
+    {redbug_targ,{stopping,_}} -> done(Cnf,Result);
+    {'EXIT',TrcPid,R}          -> ?log({trace_control_died,R}),
+                                  done(Cnf,Result);
     X                          -> ?log({unknown_message,X})
+  end.
+
+wait_for_printer(Cnf = #cnf{print_pid=PrintPid}) ->
+  receive
+    {'EXIT',PrintPid,R} -> done(Cnf,R);
+    X                   -> ?log([{unknown_message,X}])
   end.
 
 stopping(Cnf = #cnf{print_pid=PrintPid}) ->
   receive
-    {'EXIT',PrintPid,R} -> done(Cnf,R);
-    X                   -> ?log([{unknown_message,X}])
+    {'EXIT',PrintPid,R} ->
+      wait_for_trc(Cnf,R)
   end.
 
 done(#cnf{blocking=false},{Reason,Answer}) ->
