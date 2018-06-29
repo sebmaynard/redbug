@@ -12,6 +12,8 @@
 -export([start/1,start/2,start/3,start/4,start/5]).
 -export([stop/0]).
 
+-compile([nowarn_deprecated_function]).
+
 -define(log(T),log([process_info(self(),current_function),{line,?LINE}],T)).
 log(HD,T) -> error_logger:info_report(HD++T).
 
